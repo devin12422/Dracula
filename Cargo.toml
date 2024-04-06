@@ -18,19 +18,18 @@ bevy_ecs = "0.13.2"
 bevy_entitiles = "0.7.0"
 bevy_talks = "0.5.0"
 wasm-bindgen = "0.2.92"
-image = { version = "0.25.1", default-features = false,features = ["jpeg", "png"] } # Add the types you want support for
-egui_extras = { version = "0.27.2", features = ["image","all_loaders"] }
+image = { version = "0.24", default-features = false, features = ["jpeg", "png"] } # Add the types you want support for
+egui_extras = { version = "0.27.2", features = ["image","all_loaders","http"] }
 iyes_progress = { version = "0.11.0",features = ["assets"] }
-
-
+random_name_generator = "0.3.6"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 bevy = { version = "0.13.2"}
-bevy_egui  = { version = "0.26.0", features = ["default_fonts"], default-features = false }
+bevy_egui  = { version = "0.26.0", features = ["default_fonts","render"], default-features = false }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 bevy = { version = "0.13.2",features = ["dynamic_linking"] }
-bevy_egui  = { version = "0.26.0", default-features = true }
+bevy_egui  = { version = "0.26.0", features = ["default_fonts","render"], default-features = true }
 
 
 # Enable a small amount of optimization in debug mode

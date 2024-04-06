@@ -1,132 +1,237 @@
-mod states;
+pub mod states;
+pub mod work;
 
+use std::f32::consts::PI;
+use std::ops::{Add, Deref};
 use bevy::prelude::*;
-use bevy_egui::{egui,EguiContexts, EguiPlugin, EguiSettings};
+use bevy_egui::{egui, EguiContexts, EguiPlugin, EguiSettings, EguiUserTextures};
 use wasm_bindgen::prelude::*;
 use states::*;
+use work::*;
+use std::ops::Sub;
 use std::time::Duration;
+use bevy::asset::LoadedFolder;
 use bevy::time::Stopwatch;
-use bevy_egui::egui::ColorImage;
+use bevy_egui::egui::{ColorImage, Pos2, Rangef, TextureId};
 use iyes_progress::prelude::*;
-
-#[derive(Default, Clone)]
-pub struct BevyEguiImage{
-    name:&'static str,
-    handle: Handle<Image>,
-    size:egui::Vec2,
-}
 
 
 static SOLAR_ICON_SIZE:egui::Vec2 = egui::Vec2::new(64.0, 64.0);
-const SOLAR_RADIUS:f32 = 256.0;
-#[derive(Resource)]
+static LUNAR_ICON_SIZE:egui::Vec2 = egui::Vec2::new(32.0, 32.0);
+
 struct DayTimer {
     stopwatch: Stopwatch,
+    timefactor:u32,
+    sleepwatch:Stopwatch,
     solar_pos:egui::Pos2,
     lunar_pos:egui::Pos2,
 }
+const TIME_FACTOR:u32 = 8;
+impl Default for DayTimer {
+    fn default() -> Self {
+        Self{
+            stopwatch:Stopwatch::default(),
+            timefactor:TIME_FACTOR,
+            sleepwatch:Stopwatch::default(),
+            solar_pos:egui::Pos2::default(),
+            lunar_pos:egui::Pos2::default()
+        }
+    }
+}
+
+#[derive(Default)]
+struct BevyEguiImageWrapper{
+    id:Option<TextureId>,
+    handle:Handle<Image>
+}
+impl BevyEguiImageWrapper{
+    fn load(&mut self,
+            mut egui_user_textures: &mut ResMut<EguiUserTextures>){
+        self.id = Some(egui_user_textures.add_image(self.handle.clone_weak()));
+    }
+}
 #[derive(Resource)]
 struct SolarSprites {
-    solar: BevyEguiImage,
-    lunar: BevyEguiImage,
+    solar: BevyEguiImageWrapper,
+    lunar: BevyEguiImageWrapper
+}
+enum Emoji{
+    Beaming,
+    Concern,
+    Confused,
+    Crying,
+    Frown,
+    FrownTear,
+    Grin,
+    GrinEyes,
+    GrinBigEyes,
+    Neutral,
+    OpenFrown,
+    Pensive,
+    Relieved,
+    SlightFrown,
+    SlightSmile,
+    Smile,
+    SmileEyes,
+    SmileTear,
+    Stressed,
+    SuperWorried,
+    Unamused,
+    Worried
+}
+enum SpecialEmoji{
+    Yawn,
+    Sleep,
+    Confounded,
+    Fear,
+    Sleepy,
+    Shock,
+    Shaking,
+    Partying,
+    Monocle,
+    Money,
+    Melting,
+    Heart,
+    Eyebrow,
+    Eating,
+    Dead,
+    Star,
+
+}
+#[derive(Resource)]
+struct PersonState {
+    happiness: i32,
+    emoji:Emoji,
+    special_emoji:Option<SpecialEmoji>,
+    money:i32
+}
+#[derive(Resource)]
+struct EmojiSprites {
+    smile: BevyEguiImageWrapper,
+    smile_eyes: BevyEguiImageWrapper,
+    pensive: BevyEguiImageWrapper,
+    worried: BevyEguiImageWrapper,
+    shock: BevyEguiImageWrapper,
+    yawn: BevyEguiImageWrapper,
+    frown: BevyEguiImageWrapper,
+    neutral: BevyEguiImageWrapper,
+
 }
 
-
-fn setup_day_timer(
-    mut commands: Commands,
-) {
-    commands.insert_resource(DayTimer {
-        stopwatch: Stopwatch::new(),
-        solar_pos: Default::default(),
-        lunar_pos: Default::default(),
-    })
-}
-fn setup_game(mut commands:Commands){
-    setup_day_timer(commands);
-
-}
-fn tick_day_timer(
-    time: Res<Time>,
-    mut day_timer: ResMut<DayTimer>
-) {
-    day_timer.stopwatch.tick(time.delta());
-    day_timer.solar_pos.x = day_timer.stopwatch.elapsed_secs().cos() * SOLAR_RADIUS;
-    day_timer.solar_pos.y = day_timer.stopwatch.elapsed_secs().sin() * SOLAR_RADIUS;
-    day_timer.lunar_pos.x = day_timer.solar_pos.x * -1.0;
-    day_timer.lunar_pos.y = day_timer.solar_pos.y * -1.0 + SOLAR_RADIUS;
-    day_timer.solar_pos.y += SOLAR_RADIUS;
-}
 #[wasm_bindgen(start)]
 pub fn start() {
     App::new()
-        .add_plugins(DefaultPlugins)
-        .add_plugins(EguiPlugin).add_plugins(
+        .add_plugins((DefaultPlugins,EguiPlugin)).add_plugins(
         ProgressPlugin::new(MyAppState::LoadingScreen)
             .continue_to(MyAppState::InGame)
-            .track_assets(),
-    )
-        .add_systems(Update,(main_menu_gui_system).run_if(in_state(MyAppState::MainMenu)))
-        .add_systems(Update,(game_ui_system,tick_day_timer).run_if(in_state(MyAppState::InGame)))
-        .add_systems(OnEnter(MyAppState::LoadingScreen),load_game_assets)
-        .add_systems(
-        Update,
-        (
-            load_update_system.after(TrackedProgressSet)
-        )
-            .run_if(in_state(MyAppState::LoadingScreen)),
-    )
+            .track_assets(), )
+        .add_systems(Update,(main_menu_gui_system.run_if(in_state(MyAppState::MainMenu)),
+                             game_update_top_ui.run_if(in_state(MyAppState::InGame)),
+                             game_update_work.run_if(in_state(MyGameState::Work)),
+                             loading_game_update.after(TrackedProgressSet)
+                                 .run_if(in_state(MyAppState::LoadingScreen))))
+        .add_systems(OnEnter(MyAppState::LoadingScreen),loading_game_assets_enter)
+        .add_systems(OnExit(MyAppState::LoadingScreen),loading_game_assets_exit)
         .insert_state(MyAppState::MainMenu)
         .insert_state(MyGameState::Home)
-
         .run();
 
 }
-fn game_ui_system(mut contexts: EguiContexts,
-                  mut state:ResMut<NextState<MyGameState>>,
-                  day_timer:Res<DayTimer>,
-                  mut sprites: ResMut<SolarSprites>,
-                  image_assets:Res<Assets<Image>>
-) {
+const TOP_UI_HEIGHT_FRACTION:f32 = 7.5;
+fn game_update_top_ui(mut contexts:EguiContexts, time:Res<Time>,
+                      mut day_timer: Local<DayTimer>,
+                      sprites: Res<SolarSprites>,
+                      state:Res<State<MyGameState>>,
+                      mut next_state:ResMut<NextState<MyGameState>>,){
+    let screen = &contexts.ctx_mut().screen_rect();
+    let time_factor = day_timer.timefactor;
+    day_timer.stopwatch.tick(time.delta()/  time_factor as u32);
+    day_timer.sleepwatch.tick(time.delta()/ time_factor as u32);
+    day_timer.solar_pos.x = (day_timer.stopwatch.elapsed_secs()).cos() * screen.width()/8.0;
+    day_timer.solar_pos.y = (day_timer.stopwatch.elapsed_secs()).sin() * screen.height()/TOP_UI_HEIGHT_FRACTION;
+    day_timer.lunar_pos.x = day_timer.solar_pos.x * -1.0;
+    day_timer.lunar_pos.y = day_timer.solar_pos.y * -1.0;
+    egui::TopBottomPanel::top("nav_panel").exact_height(screen.height()/TOP_UI_HEIGHT_FRACTION).show(contexts.ctx_mut(), |ui|{
+        ui.label(format!("You are on day # {0}",(day_timer.stopwatch.elapsed_secs()/(2.0*PI)) as u16+1));
 
-    egui::Window::new("fdsf").show(contexts.ctx_mut(), |ui| {
-        ui.label("dsf");
-    });
-    egui::TopBottomPanel::top("nav_panel").show(contexts.ctx_mut(), |ui|{
-        if ui.button("Go to Work").clicked(){
-
+        match state.get() {
+                    MyGameState::Work => {
+                        if ui.button("Go Home").clicked(){
+                            next_state.set(MyGameState::Home);
+                        }
+                    },
+                    MyGameState::Home => {
+                        if ui.button("Go to Work").clicked(){
+                            next_state.set(MyGameState::Work);
+                        }
+                        if ui.button("Go to Sleep").clicked(){
+                            next_state.set(MyGameState::Sleeping);
+                            day_timer.timefactor /= TIME_FACTOR;
+                            day_timer.sleepwatch.reset();
+                        }
+                    },
+                    MyGameState::Sleeping => {
+                        day_timer.sleepwatch.tick(time.delta());
+                        if((day_timer.sleepwatch.elapsed_secs() /PI )as u16 > 1){
+                            day_timer.sleepwatch.reset();
+                            day_timer.timefactor *= TIME_FACTOR;
+                            next_state.set(MyGameState::Home);
+                        }
+                    }
         }
-        egui::Image::from_bytes("moon.png",include_bytes!("../assets/moon.png")).paint_at(ui,egui::Rect::from_center_size(day_timer.solar_pos,SOLAR_ICON_SIZE));
-    });
+        egui::widgets::Image::new(egui::load::SizedTexture::new(
+            sprites.lunar.id.unwrap(),
+            LUNAR_ICON_SIZE,
+        )).paint_at(ui,egui::Rect::from_center_size(day_timer.solar_pos.add(egui::Vec2{x:screen.width()/2.0,y:screen.height()/TOP_UI_HEIGHT_FRACTION}),LUNAR_ICON_SIZE));
+        egui::widgets::Image::new(egui::load::SizedTexture::new(
+            sprites.solar.id.unwrap(),
+            SOLAR_ICON_SIZE,
+        )).paint_at(ui,egui::Rect::from_center_size(day_timer.lunar_pos.add(egui::Vec2{x:screen.width()/2.0,y:screen.height()/TOP_UI_HEIGHT_FRACTION}),SOLAR_ICON_SIZE)); });
 
 }
 
 
-fn load_update_system(mut commands:Commands,mut contexts: EguiContexts,    counter: Res<ProgressCounter>,
-) {
+fn loading_game_update(mut commands:Commands,
+    mut contexts: EguiContexts,
+    counter: Res<ProgressCounter>,
+    loading:Res<AssetsLoading>, ){
     let progress = counter.progress();
     egui::Window::new("Loading").show(contexts.ctx_mut(), |ui| {
-        ui.label("Loading...{progress.done},{progress.total}");
+        ui.label(format!("Loading...{0}/{1}", progress.done,progress.total));
     });
 }
-fn load_game_assets(mut commands: Commands,asset_server:Res<AssetServer>,mut loading:ResMut<AssetsLoading>){
+
+fn loading_game_assets_enter(mut commands: Commands,
+                             asset_server:Res<AssetServer>,
+                             mut loading:ResMut<AssetsLoading>,
+                             mut egui_user_textures: ResMut<EguiUserTextures>,) {
     let solar_handle:Handle<Image> = asset_server.load("sun.png");
     let lunar_handle:Handle<Image> = asset_server.load("moon.png");
+    //let emoji_handle: Handle<LoadedFolder> = asset_server.load_folder("emojis");
     loading.add(&solar_handle);
     loading.add(&lunar_handle);
-    commands.insert_resource(SolarSprites {
-        solar: BevyEguiImage{name:"sun",handle:solar_handle,size:SOLAR_ICON_SIZE},
-        lunar: BevyEguiImage{ name:"moon",handle:lunar_handle,size:SOLAR_ICON_SIZE },
-    });
-    setup_game(commands);
+    //loading.add(&emoji_handle);
+    // emoji_handle. .typed::<T>()
 
+    commands.insert_resource(SolarSprites {
+        solar: BevyEguiImageWrapper{ id: None, handle:solar_handle} ,
+        lunar: BevyEguiImageWrapper{ id: None, handle:lunar_handle}
+    });
 }
-fn main_menu_gui_system(mut contexts: EguiContexts,mut state:ResMut<NextState<MyAppState>>) {
+fn loading_game_assets_exit(mut sprites: ResMut<SolarSprites>,
+                            mut egui_user_textures: ResMut<EguiUserTextures>) {
+    sprites.lunar.load(&mut egui_user_textures);
+    sprites.solar.load(&mut egui_user_textures);
+}
+fn main_menu_gui_system(mut app_exit_events: ResMut<Events<bevy::app::AppExit>>,
+                        mut contexts: EguiContexts,
+                        mut state:ResMut<NextState<MyAppState>>) {
     egui::CentralPanel::default().show(contexts.ctx_mut(), |ui|{
         if ui.button("Start").clicked(){
             state.set(MyAppState::LoadingScreen)
         }
         if ui.button("Exit").clicked(){
-            state.set(MyAppState::LoadingScreen)
+            app_exit_events.send(bevy::app::AppExit);
         }
     });
 }

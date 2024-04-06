@@ -1,0 +1,32 @@
+- Init
+This is my development journal for my Brit Lit game.
+This is actually akin to something called a game jam, where there's a strict time limit and you have to make a game fitting a theme.
+I've wanted to do one of those for a while, though I might've weaseled my way around the time limit ;).
+I didn't actually realize this game was due today, I went home during lunch to work on it.
+It's not something that I could've done in school easily.
+I'll be filling in more entries as I continue to work on this
+for now it's time for another cup of coffee.
+
+On The UI
+A lot of people talk about diagetic elements in user interface -
+that is, the user interface being a part of the games world
+the user interface being elements on screen telling you your health for instance
+as opposed to user interface elements being plastered on your screen,
+like a timer at the top of your screen vs a watch that your character actually checks
+
+There's this game called System Shock that started doing something interesting with user interfaces though
+It made the game a part of the user interface - not the other way around.
+I hope I'm able to explore that idea further in this game
+especially since I dont really have time to make many visual elements.
+
+- 15 minutes
+Bits On Gameplay
+Task based gameplay is not an idea that Among Us came up with.
+If anyone other than Mrs Flynn reads this, they'll have heard of that game.
+It only popularized the idea.
+Sometimes I'll watch video essays to kill time, and in one of those, someone went in depth on several games with these mechanics.
+Hearing about games and watching them are both very different than playing them,
+ but I trust that this person expounded sufficiently on the aspects relevant to the topic at hand.
+ Anyways, he talked about how tasks condition the player to keep on playing.
+ To literally keep them focused on the task at hand
+ and how it makes them let their guard down.
