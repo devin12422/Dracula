@@ -1,0 +1,38 @@
+InputConfig(
+    bindings: {
+        "PlayerInput": {
+            "Move": [
+                DualAxis(
+                    x: Hold([Key(KeyA)], [Key(KeyD)]),
+                    y: Hold([Key(KeyS)], [Key(KeyW)]),
+                ),
+                DualAxis(
+                    x: Analog(
+                        input: GamePad(RightStickX),
+                        sensitivity: Sensitivity(5.0),
+                    ),
+                    y: Analog(
+                        input: GamePad(RightStickY),
+                        sensitivity: Sensitivity(5.0),
+                    ),
+                ),
+            ],
+            "Look": [
+                SingleAxis(Hold([Key(ArrowLeft)], [Key(ArrowRight)])),
+                SingleAxis(Analog(
+                    input: GamePadLeftTrigger2,
+                    inversion: NotInverted,
+                    sensitivity: Sensitivity(5.0),
+                )),
+                SingleAxis(Analog(
+                    input: GamePadRightTrigger2,
+                    inversion: Inverted,
+                    sensitivity: Sensitivity(5.0),
+                )),
+            ],
+            "UIToggle": [
+                Continuous(Hold([Key(ShiftLeft)])),
+            ],
+        },
+    },
+)

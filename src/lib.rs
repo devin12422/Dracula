@@ -2,6 +2,9 @@
 extern crate static_assertions;
 pub mod states;
 pub mod work;
+mod building;
+
+use bevy::pbr::CascadeShadowConfigBuilder;
 use rand::prelude::*;
 use std::cell::RefCell;
 
@@ -14,7 +17,7 @@ use bevy_egui::{egui, EguiContexts, EguiPlugin, EguiSettings, EguiUserTextures};
 use wasm_bindgen::prelude::*;
 use states::*;
 use work::*;
-use std::ops::Sub;
+
 use std::rc::{Rc, Weak};
 use bevy::time::Stopwatch;
 use bevy::utils::{HashMap, HashSet};
@@ -281,49 +284,61 @@ fn loading_game_update(mut commands:Commands,
         ui.label(format!("Loading...{0}/{1}", progress.done,progress.total));
     });
 }
-fn load_room(mut commands: Commands,mut meshes:ResMut<Assets<Mesh>>,mut materials:ResMut<Assets<StandardMaterial>>,mut egui_rooms:ResMut<HouseLayout>){
-    for room_un in &egui_rooms.rooms{
-        let room = room_un.div(2.0);
-        commands.spawn(PbrBundle {
-            mesh: meshes.add(Cuboid::new(room.width(), 1.0, 1.0)),
-            material: materials.add(Color::rgb_u8(124, 144, 255)),
-            transform: Transform::from_xyz(room.center_bottom().x, room.bottom(), 0.5),
-            ..default()
-        });
-        commands.spawn(PbrBundle {
-            mesh: meshes.add(Cuboid::new(room.width(), 1.0, 1.0)),
-            material: materials.add(Color::rgb_u8(124, 144, 255)),
-            transform: Transform::from_xyz(room.center_top().x, room.top(), 0.5),
-            ..default()
-        });
-        commands.spawn(PbrBundle {
-            mesh: meshes.add(Cuboid::new(1.0, room.height(), 1.0)),
-            material: materials.add(Color::rgb_u8(124, 144, 255)),
-            transform: Transform::from_xyz(room.left(), room.left_center().y, 0.5),
-            ..default()
-        });
-        commands.spawn(PbrBundle {
-            mesh: meshes.add(Cuboid::new(1.0, room.height(), 1.0)),
-            material: materials.add(Color::rgb_u8(124, 144, 255)),
-            transform: Transform::from_xyz(room.right(), room.right_center().y, 0.5),
-            ..default()
-        });
-        commands.spawn(PointLightBundle {
-            point_light: PointLight {
-                shadows_enabled: true,
-                ..default()
-            },
-            transform: Transform::from_xyz(room.center().x, room.center().y, 4.0),
-            ..default()
-        });
+#[derive(Component)]
+struct BuildingMarker;
+fn load_room(mut commands: Commands,mut meshes:ResMut<Assets<Mesh>>,mut materials:ResMut<Assets<StandardMaterial>>, query: Query<Entity, With<BuildingMarker>>){
+    for entity in query.iter() {
+        commands.entity(entity).remove::<PbrBundle>();
+        commands.entity(entity).remove::<BuildingMarker>();
     }
-
-    // light
-
+    let specs = vec![
+        (BuildingIterationParameters{aspect_ratio_probability_factor:0.3,
+            aspect_ratio_probability_offset:1.0,
+            min_rooms_in_split:2,
+            max_rooms_in_split:4,
+            divider_width:HALL_WIDTH, },5),
+        (BuildingIterationParameters{aspect_ratio_probability_factor:0.7,
+            aspect_ratio_probability_offset:1.0,
+            min_rooms_in_split:2,
+            max_rooms_in_split:4,
+            divider_width:0.0,},5)];
+    let mut room_spec = vec![
+        RoomSpec{area_range:Rangef::new(3.0, 30.0) },
+        RoomSpec{area_range:Rangef::new(3.0,30.0)},
+        RoomSpec{area_range:Rangef::new(3.0,30.0)},
+        RoomSpec{area_range:Rangef::new(30.0,100.0)}];
+    let mut building = generate_building(specs,room_spec);
+    let mut rects =  building.get_lowest_rects();
+    for room in rects{
+        println!("room {:?}",room);
+        commands.spawn((PbrBundle {
+            mesh: meshes.add(Cuboid::new(room.width(), 0.1, 1.0)),
+            material: materials.add(Color::rgb_u8(124, 144, 255)),
+            transform: Transform::from_xyz(room.center_bottom().x, room.center_bottom().y, 0.5),
+            ..default()
+        },BuildingMarker));
+        commands.spawn((PbrBundle {
+            mesh: meshes.add(Cuboid::new(room.width(), 0.1, 1.0)),
+            material: materials.add(Color::rgb_u8(124, 144, 255)),
+            transform: Transform::from_xyz(room.center_top().x, room.center_top().y, 0.5),
+            ..default()
+        },BuildingMarker));
+        commands.spawn((    PbrBundle {
+            mesh: meshes.add(Cuboid::new(0.1, room.height(), 1.0)),
+            material: materials.add(Color::rgb_u8(124, 144, 255)),
+            transform: Transform::from_xyz(room.right_center().x, room.right_center().y, 0.5),
+            ..default()
+        },BuildingMarker));
+        commands.spawn((PbrBundle {
+            mesh: meshes.add(Cuboid::new(0.1, room.height() , 1.0)),
+            material: materials.add(Color::rgb_u8(124, 144, 255)),
+            transform: Transform::from_xyz(room.left_center().x, room.left_center().y , 0.5),
+            ..default()
+        },BuildingMarker));
+        
+    }
 }
-use quadtree_rs::{area::AreaBuilder, point::Point, Quadtree};
-
-
+use crate::building::{BuildingIterationParameters, generate_building, HALL_WIDTH, RoomSpec};
 fn loading_game_assets_enter(mut q_windows: Query<&mut Window, With<PrimaryWindow>>,
                              mut commands: Commands,
                              asset_server:Res<AssetServer>,
@@ -360,11 +375,29 @@ fn loading_game_assets_enter(mut q_windows: Query<&mut Window, With<PrimaryWindo
         emoji_map: emojis,
         special_emoji_map: special_emojis,
     });
-    commands.insert_resource(HouseLayout{rooms:Vec::new(),quad:Quadtree::<u64,String>::new(DEPTH)});
-    // circular base
-
-    // light
-
+    commands.insert_resource(AmbientLight {
+        color: Color::ORANGE_RED,
+        brightness: 0.02,
+    });
+    commands.spawn(DirectionalLightBundle {
+        directional_light: DirectionalLight {
+            illuminance: light_consts::lux::OVERCAST_DAY,
+            shadows_enabled: true,
+            ..default()
+        },
+        transform: Transform {
+            translation: Vec3::new(0.0, 2.0, 0.0),
+            rotation: Quat::from_rotation_x(-PI / 4.),
+            ..default()
+        },
+        cascade_shadow_config: CascadeShadowConfigBuilder {
+            first_cascade_far_bound: 4.0,
+            maximum_distance: 10.0,
+            ..default()
+        }
+            .into(),
+        ..default()
+    });
     setup_camera(commands);
 }
 fn loading_game_assets_exit(mut sprites: ResMut<TopUISprites>,
