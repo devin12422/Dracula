@@ -30,3 +30,14 @@ Hearing about games and watching them are both very different than playing them,
  Anyways, he talked about how tasks condition the player to keep on playing.
  To literally keep them focused on the task at hand
  and how it makes them let their guard down.
+
+
+- Saturday
+The game's unofficial deadline is in two days.
+When ever im brainstorming for the game I cant stop pacing.
+Between pacing, biking, and standing while I work
+At some point I wont be able to do any of them.
+Writing this game in Rust instead of a game engine is making my life so much more difficult
+It's not worth the grade.
+Worst part is that I'm probably getting late points off.
+But it is worth both the product and the practice
