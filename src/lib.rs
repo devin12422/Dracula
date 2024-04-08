@@ -141,8 +141,8 @@ fn setup_camera(mut commands: Commands) {
     input_map.insert(PlayerMovement::Look,DualAxis::mouse_motion());
     commands.spawn((
         Camera3dBundle {
-            transform: Transform::from_xyz(0.0, 0.0, 5.0)
-                .looking_at(Vec3{ x: 0.0, y: 0.0, z: 0.0 }, Vec3::Z),
+            transform: Transform::from_xyz(0.0, 0.0, 0.5)
+                .looking_at(Vec3{ x: 1.0, y: 0.0, z: 0.5 }, Vec3::Z),
             ..default()
         },
         PlayerMarker,
@@ -284,6 +284,7 @@ fn loading_game_update(mut commands:Commands,
         ui.label(format!("Loading...{0}/{1}", progress.done,progress.total));
     });
 }
+pub const DOOR_WIDTH:f32 = 1.0;
 #[derive(Component)]
 struct BuildingMarker;
 fn load_room(mut commands: Commands,mut meshes:ResMut<Assets<Mesh>>,mut materials:ResMut<Assets<StandardMaterial>>, query: Query<Entity, With<BuildingMarker>>){
@@ -299,56 +300,85 @@ fn load_room(mut commands: Commands,mut meshes:ResMut<Assets<Mesh>>,mut material
             is_hallway:true,
             room_requirements: vec![
                 RoomSpec{area_range:Rangef::new(3.0,30.0),
-                    has_exterior_door: false, .. Default::default()  },
+                    has_direct_access: false, .. Default::default()  },
                 RoomSpec{area_range:Rangef::new(3.0,30.0),
-                    has_exterior_door: false, .. Default::default()  },
+                    has_direct_access: false, .. Default::default()  },
                 RoomSpec{area_range:Rangef::new(30.0,100.0),
-                    has_exterior_door: true , .. Default::default() }],
+                    has_direct_access: true , .. Default::default() }],
         }, 2),
         (BuildingIterationParameters{aspect_ratio_probability_factor:0.7,
             aspect_ratio_probability_offset:1.0,
             min_rooms_in_split:2,
-            max_rooms_in_split:5,
+            max_rooms_in_split:3,
             is_hallway:false,
             room_requirements: vec![
                 RoomSpec{area_range:Rangef::new(3.0, 30.0),
-                    has_exterior_door: false,..Default::default() },
+                    has_direct_access: false,..Default::default() },
                 RoomSpec{area_range:Rangef::new(3.0,30.0),
-                    has_exterior_door: false, .. Default::default()  },],
-        }, 5)];
+                    has_direct_access: false, .. Default::default()  },],
+        }, 4)];
 
     let mut building = generate_building(specs);
-    let mut rects =  building.get_lowest_rects();
-    for room in rects{
-        println!("room {:?}",room);
-        commands.spawn((PbrBundle {
-            mesh: meshes.add(Cuboid::new(room.width(), 0.1, 1.0)),
-            material: materials.add(Color::rgb_u8(124, 144, 255)),
-            transform: Transform::from_xyz(room.center_bottom().x, room.center_bottom().y, 0.5),
-            ..default()
-        },BuildingMarker));
-        commands.spawn((PbrBundle {
-            mesh: meshes.add(Cuboid::new(room.width(), 0.1, 1.0)),
-            material: materials.add(Color::rgb_u8(124, 144, 255)),
-            transform: Transform::from_xyz(room.center_top().x, room.center_top().y, 0.5),
-            ..default()
-        },BuildingMarker));
-        commands.spawn((    PbrBundle {
-            mesh: meshes.add(Cuboid::new(0.1, room.height(), 1.0)),
-            material: materials.add(Color::rgb_u8(124, 144, 255)),
-            transform: Transform::from_xyz(room.right_center().x, room.right_center().y, 0.5),
-            ..default()
-        },BuildingMarker));
-        commands.spawn((PbrBundle {
-            mesh: meshes.add(Cuboid::new(0.1, room.height() , 1.0)),
-            material: materials.add(Color::rgb_u8(124, 144, 255)),
-            transform: Transform::from_xyz(room.left_center().x, room.left_center().y , 0.5),
-            ..default()
-        },BuildingMarker));
-        
+    for chunk in building.get_all(){
+        let room = chunk.rect;
+        if let Some(BuildingChunkData::Parent(children,is_hallway)) = &chunk.divided_chunks {
+
+        }else{
+            commands.spawn((PbrBundle {
+                mesh: meshes.add(Cuboid::new(room.width(), 0.1, 1.0)),
+                material: materials.add(Color::rgb_u8(124, 144, 255)),
+                transform: Transform::from_xyz(room.center_bottom().x, room.center_bottom().y, 0.5),
+                ..default()
+            },BuildingMarker));
+            commands.spawn((PbrBundle {
+                mesh: meshes.add(Cuboid::new(room.width(), 0.1, 1.0)),
+                material: materials.add(Color::rgb_u8(124, 144, 255)),
+                transform: Transform::from_xyz(room.center_top().x, room.center_top().y, 0.5),
+                ..default()
+            },BuildingMarker));
+            commands.spawn((    PbrBundle {
+                mesh: meshes.add(Cuboid::new(0.1, room.height(), 1.0)),
+                material: materials.add(Color::rgb_u8(124, 144, 255)),
+                transform: Transform::from_xyz(room.right_center().x, room.right_center().y, 0.5),
+                ..default()
+            },BuildingMarker));
+            commands.spawn((PbrBundle {
+                mesh: meshes.add(Cuboid::new(0.1, room.height() , 1.0)),
+                material: materials.add(Color::rgb_u8(124, 144, 255)),
+                transform: Transform::from_xyz(room.left_center().x, room.left_center().y , 0.5),
+                ..default()
+            },BuildingMarker));
+            commands.spawn(PointLightBundle {
+                point_light: PointLight{
+                    color: Color::rgb(1.0, 1.0, 1.0),
+                    intensity: 10000.0,
+                    range: room.width().max(room.height()),
+                    radius: 0.0,
+                    ..Default::default()
+                },
+                transform: Transform::from_xyz(room.center().x, room.center().y , 1.0),
+                ..Default::default()
+            });
+            for door in 0..chunk.doors.len(){
+                if let DoorEnum::Interior(..) = chunk.doors[door]{
+                    let angle_vec = Vec2::from_angle(door as f32 * PI / 2.0);
+                    let door_pos = room.center().add(bevy_egui::egui::emath::Vec2{x:(angle_vec.x * room.width()/2.0),y:(angle_vec.y * room.height()/2.0)});
+                    let mut door_transform = Transform::from_xyz(door_pos.x, door_pos.y , 0.5) ;
+                    door_transform.rotate_z(door as f32 * PI /2.0);
+                    commands.spawn((PbrBundle {
+                        mesh: meshes.add(Cuboid::new(0.1, DOOR_WIDTH , 1.1)),
+                        material: materials.add(Color::rgb_u8(124, 255, 124)),
+                        transform:door_transform,
+                        ..default()
+                    },BuildingMarker));
+                }
+
+            }
+        }
+
     }
 }
-use crate::building::{BuildingIterationParameters, generate_building, HALL_WIDTH, RoomSpec};
+use crate::building::{BuildingChunkData, BuildingIterationParameters, DoorEnum, generate_building, HALL_WIDTH, RoomSpec};
 fn loading_game_assets_enter(mut q_windows: Query<&mut Window, With<PrimaryWindow>>,
                              mut commands: Commands,
                              asset_server:Res<AssetServer>,
@@ -374,7 +404,6 @@ fn loading_game_assets_enter(mut q_windows: Query<&mut Window, With<PrimaryWindo
         let handle:Handle<Image> = asset_server.load(format!("emojis/special/{0}.png",&emoji.to_string()));
         loading.add(&handle);
         special_emojis.insert(emoji,BevyEguiImageWrapper{id:None,handle:handle},);
-
     }
     loading.add(&solar_handle);
     loading.add(&lunar_handle);
@@ -387,16 +416,16 @@ fn loading_game_assets_enter(mut q_windows: Query<&mut Window, With<PrimaryWindo
     });
     commands.insert_resource(AmbientLight {
         color: Color::ORANGE_RED,
-        brightness: 0.02,
+        brightness: 0.05,
     });
     commands.spawn(DirectionalLightBundle {
         directional_light: DirectionalLight {
-            illuminance: light_consts::lux::OVERCAST_DAY,
+            illuminance: light_consts::lux::AMBIENT_DAYLIGHT,
             shadows_enabled: true,
             ..default()
         },
         transform: Transform {
-            translation: Vec3::new(0.0, 2.0, 0.0),
+            translation: Vec3::new(0.0, 2.0, 10.0),
             rotation: Quat::from_rotation_x(-PI / 4.),
             ..default()
         },

@@ -8,15 +8,42 @@ use bevy_egui::egui::{emath, Pos2, Rangef};
 use rand::{Rng, thread_rng};
 
 pub const HALL_WIDTH:f32 = 2.0;
-
+#[derive(Debug,Clone,Copy)]
+pub enum DoorEnum{
+    None,
+    Interior(bool),
+}
 #[derive(Debug)]
 pub struct BuildingChunk{
     pub rect:egui::Rect,
     pub divided_chunks:Option<BuildingChunkData>,
+    pub doors:[DoorEnum;4],
     pub horizontal:bool
 }
 pub const MIN_ROOM_DIM:f32 = 3.0;
 impl BuildingChunk{
+    pub fn get_all(&self)->Vec<&BuildingChunk>{
+        let mut vec:Vec<&BuildingChunk> = Vec::new();
+        match self.divided_chunks {
+            Some(ref data) => {
+                match data {
+                    BuildingChunkData::Tagged => {
+                        vec.push(self);
+                    },
+                    BuildingChunkData::Parent(children, _) => {
+                        for child in children {
+                            vec.append(&mut child.get_all());
+                        }
+                        vec.push(self);
+                    }
+                }
+            },
+            None => {
+                vec.push(self);
+            }
+        }
+        vec
+    }
     pub fn get_lowest_untaken(&mut self)->Vec<&mut BuildingChunk>{
         match self.divided_chunks {
             Some(ref mut data)=>{
@@ -24,7 +51,7 @@ impl BuildingChunk{
                     BuildingChunkData::Tagged => {
                         return Vec::new();
                     },
-                    BuildingChunkData::Parent(children) => {
+                    BuildingChunkData::Parent(children, _) => {
                         let mut vec = Vec::new();
                         for child in children{
                             vec.append(&mut child.get_lowest_untaken());
@@ -45,7 +72,7 @@ impl BuildingChunk{
             },
             Some(T)=>{
                 match T{
-                    BuildingChunkData::Parent( children)=>{
+                    BuildingChunkData::Parent( children, _)=>{
                         let mut vec = Vec::new();
                         for chunk in children{
                             vec = [vec,chunk.get_lowest_rects()].concat();
@@ -67,7 +94,7 @@ impl BuildingChunk{
             }, Some(ref mut data) => {
                 match data{
                     BuildingChunkData::Tagged => {},
-                    BuildingChunkData::Parent(ref mut children) => {
+                    BuildingChunkData::Parent(ref mut children,..) => {
                         for chunk in children {
                             chunk.divide(parameters);
                         }
@@ -77,7 +104,7 @@ impl BuildingChunk{
         }
     }
     pub fn divide_evenly(&mut self,room_count:usize,is_hallway:bool,aspect_factor:f32,aspect_offset:f32,horizontal:bool){
-        if room_count == 0{
+        if room_count <= 1{
             return;
         }
         let mut rng = thread_rng();
@@ -86,34 +113,42 @@ impl BuildingChunk{
         let aspect = ((room_width/ (room_height + room_width))-0.5).abs();
         if rng.gen_bool((aspect_offset - (aspect*aspect_factor)).clamp(0.0,1.0) as f64) && room_height > MIN_ROOM_DIM && room_width > MIN_ROOM_DIM{
             for room in 0..room_count{
-                if(horizontal){
-                    let room_rect=  egui::Rect::from_min_size(Pos2{x:self.rect.left(),y:self.rect.top()+ ((room as f32) * ((if (is_hallway){HALL_WIDTH } else {0.0})+room_height))},emath::Vec2{x:room_width,y:room_height});
-                    match self.divided_chunks{
-                        Some(ref mut T)=>{
-                            if let BuildingChunkData::Parent(ref mut children) = T {
-                                children.push(BuildingChunk{rect:room_rect, divided_chunks: None, horizontal });
+                let mut doors_temp = [DoorEnum::None;4];
+                let doors = if(is_hallway){
+                    for door in 0..self.doors.len(){
+                        println!("{:?}",self.doors[door]);
+                        if let DoorEnum::Interior(..) = self.doors[door]{
+                            if(room > 0) && (door % 4== 1 || door % 4== 3){
+                                doors_temp[((door+1) % 4)]  = self.doors[door];
                             }
-                        },
-                        None=>{
-                            self.divided_chunks = Some(BuildingChunkData::Parent(vec![BuildingChunk{rect:room_rect, divided_chunks: None, horizontal }]));
-                        }
-                    };
+                            if(room < (room_count - 1)) &&(door % 4== 2 || door % 4== 0){
+                                doors_temp[(door+3) % 4]  = self.doors[door];
+                            }
 
+                        }
+                    }
+                    doors_temp
                 }else{
-                    let room_rect =  egui::Rect::from_min_size(Pos2{x:self.rect.left()+ ((room as f32 )* ((if (is_hallway){HALL_WIDTH} else {0.0})+room_width)),y:self.rect.top()},
-                                                               emath::Vec2{x:room_width,y:room_height});
-                    match self.divided_chunks{
-                        Some(ref mut T)=>{
-                            if let BuildingChunkData::Parent(ref mut children) = T {
-                                children.push(BuildingChunk{rect:room_rect, divided_chunks: None, horizontal });
-                            }
-                        },
-                        None=>{
-                            self.divided_chunks = Some(BuildingChunkData::Parent(vec![BuildingChunk{rect:room_rect, divided_chunks: None, horizontal }]));
-                        }
-                    };
+                    println!("{:?}",self.doors);
+                    doors_temp = self.doors;
+                    doors_temp
+                };
 
-                }
+                let room_rect= if(horizontal){
+                    egui::Rect::from_min_size(Pos2{x:self.rect.left(),y:self.rect.top()+ ((room as f32) * ((if (is_hallway){HALL_WIDTH } else {0.0})+room_height))},emath::Vec2{x:room_width,y:room_height})}
+                else{
+                    egui::Rect::from_min_size(Pos2{x:self.rect.left()+ ((room as f32 )* ((if (is_hallway){HALL_WIDTH} else {0.0})+room_width)),y:self.rect.top()}, emath::Vec2{x:room_width,y:room_height}) };
+
+                match self.divided_chunks{
+                    Some(ref mut T)=>{
+                        if let BuildingChunkData::Parent(ref mut children, ..) = T {
+                            children.push(BuildingChunk{rect:room_rect, divided_chunks: None, doors, horizontal });
+                        }
+                    },
+                    None=>{
+                        self.divided_chunks = Some(BuildingChunkData::Parent(vec![BuildingChunk { rect: room_rect, divided_chunks: None, doors, horizontal }], is_hallway));
+                    }
+                };
             }
 
         }
@@ -123,16 +158,14 @@ impl BuildingChunk{
 #[derive(Debug)]
 pub struct RoomSpec{
     pub(crate) area_range: Rangef,
-    pub(crate) door_range:Rangef,
-    pub(crate) has_exterior_door:bool,
+    pub(crate) has_direct_access:bool,
     pub(crate) room:Option<egui::Rect>
 }
 impl Default for RoomSpec{
     fn default() -> Self {
         Self{
             area_range:Rangef{min:8.0,max:15.0},
-            door_range:Rangef{min:1.0,max:2.0},
-            has_exterior_door:false,
+            has_direct_access:false,
             room:None
         }
     }
@@ -140,7 +173,7 @@ impl Default for RoomSpec{
 #[derive(Debug)]
 pub enum BuildingChunkData{
     Tagged,
-    Parent(Vec<BuildingChunk>)
+    Parent(Vec<BuildingChunk>,bool)
 }
 const BUILDING_ASPECT_VARIATION:f32 = PI/16.0;
 const BUILDING_SIZE_VARIATION:f32 = 2.0;
@@ -165,9 +198,11 @@ pub fn generate_building(room_iters:Vec<(BuildingIterationParameters,usize)>) ->
     area = area.max(MINIMUM_BUILDING_SIZE);
     let theta=rng.gen_range(((PI/4.0)-BUILDING_ASPECT_VARIATION)..((PI/4.0)+BUILDING_ASPECT_VARIATION));
     let scale = rng.gen_range(1.0..(1.0 + BUILDING_SIZE_VARIATION)) ;
-    let mut building = BuildingChunk { rect:egui::Rect{min:Pos2{x:0.0,y:0.0},max:Pos2{x:area.sqrt() * theta.cos() * scale,y:area.sqrt() * theta.sin() * scale}}, divided_chunks: None, horizontal: false };
-    println!("{:?}", building.rect);
-
+    let mut building = BuildingChunk { rect:egui::Rect{min:Pos2{x:0.0,y:0.0},max:Pos2{x:area.sqrt() * theta.cos() * scale,y:area.sqrt() * theta.sin() * scale}},
+        divided_chunks: None,
+        doors:[DoorEnum::Interior(false),DoorEnum::None,DoorEnum::None,DoorEnum::None],
+        horizontal: false };
+    building.divide_evenly(2, true, 0.0, 1.0, false);
     for specs in room_iters{
         for n in 0..specs.1{
             building.divide(&specs.0);
@@ -176,7 +211,7 @@ pub fn generate_building(room_iters:Vec<(BuildingIterationParameters,usize)>) ->
             if(room_requirement.room.is_none()){
                 let mut candidates = Vec::new();
                 for room in building.get_lowest_untaken(){
-                    if(room_requirement.has_exterior_door &&  room.rect.intersects(egui::Rect{min:Pos2{x:0.0,y:0.0},max:Pos2{x:area.sqrt() * theta.cos() * scale,y:area.sqrt() * theta.sin() * scale}})) | !(&room_requirement).has_exterior_door{
+                    if(room_requirement.has_direct_access &&  room.rect.intersects(egui::Rect{min:Pos2{x:0.0,y:0.0},max:Pos2{x:area.sqrt() * theta.cos() * scale,y:area.sqrt() * theta.sin() * scale}})) | !(&room_requirement).has_direct_access {
                         if (room_requirement.area_range.contains(room.rect.area())){
                             candidates.push(room);
                         }
