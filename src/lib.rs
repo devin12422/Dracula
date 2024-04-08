@@ -296,18 +296,28 @@ fn load_room(mut commands: Commands,mut meshes:ResMut<Assets<Mesh>>,mut material
             aspect_ratio_probability_offset:1.0,
             min_rooms_in_split:2,
             max_rooms_in_split:4,
-            divider_width:HALL_WIDTH, },5),
+            is_hallway:true,
+            room_requirements: vec![
+                RoomSpec{area_range:Rangef::new(3.0,30.0),
+                    has_exterior_door: false, .. Default::default()  },
+                RoomSpec{area_range:Rangef::new(3.0,30.0),
+                    has_exterior_door: false, .. Default::default()  },
+                RoomSpec{area_range:Rangef::new(30.0,100.0),
+                    has_exterior_door: true , .. Default::default() }],
+        }, 2),
         (BuildingIterationParameters{aspect_ratio_probability_factor:0.7,
             aspect_ratio_probability_offset:1.0,
             min_rooms_in_split:2,
-            max_rooms_in_split:4,
-            divider_width:0.0,},5)];
-    let mut room_spec = vec![
-        RoomSpec{area_range:Rangef::new(3.0, 30.0) },
-        RoomSpec{area_range:Rangef::new(3.0,30.0)},
-        RoomSpec{area_range:Rangef::new(3.0,30.0)},
-        RoomSpec{area_range:Rangef::new(30.0,100.0)}];
-    let mut building = generate_building(specs,room_spec);
+            max_rooms_in_split:5,
+            is_hallway:false,
+            room_requirements: vec![
+                RoomSpec{area_range:Rangef::new(3.0, 30.0),
+                    has_exterior_door: false,..Default::default() },
+                RoomSpec{area_range:Rangef::new(3.0,30.0),
+                    has_exterior_door: false, .. Default::default()  },],
+        }, 5)];
+
+    let mut building = generate_building(specs);
     let mut rects =  building.get_lowest_rects();
     for room in rects{
         println!("room {:?}",room);
