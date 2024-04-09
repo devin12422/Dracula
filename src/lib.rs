@@ -4,42 +4,58 @@ pub mod states;
 pub mod work;
 mod building;
 
+use serde::{Serialize,Deserialize};
 use bevy::pbr::CascadeShadowConfigBuilder;
 use rand::prelude::*;
-use std::cell::RefCell;
-
-use std::cmp::max;
 use strum::IntoEnumIterator;
 use std::f32::consts::PI;
 use std::ops::{Add, Deref, Div, Mul};
+use std::path::Path;
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts, EguiPlugin, EguiSettings, EguiUserTextures};
 use wasm_bindgen::prelude::*;
 use states::*;
 use work::*;
-
-use std::rc::{Rc, Weak};
+use bevy_xpbd_3d::prelude::*;
 use bevy::time::Stopwatch;
-use bevy::utils::{HashMap, HashSet};
-use bevy_egui::egui::{ColorImage, Pos2, Rangef, TextureId};
+use bevy::utils::{HashMap};
+use bevy_egui::egui::{ Pos2, Rangef, TextureId};
 use iyes_progress::prelude::*;
 use leafwing_input_manager::prelude::*;
 use bevy::window::{CursorGrabMode, PrimaryWindow};
+use leafwing_input_manager::prelude::InputKind::Mouse;
+use bevy_persistent::prelude::*;
+use bevy_ecs::prelude::*;
+use bevy_reflect::prelude::*;
 
 const TIME_FACTOR:u32 = 8;
-
 const TOP_UI_HEIGHT_FRACTION:f32 = 7.5;
-
 const SPEED: f32 = 10.0;
+pub const DOOR_WIDTH:f32 = 1.0;
+
 static ROTATE_SPEED: f32 = -100.0;
 
 static SOLAR_ICON_SIZE:egui::Vec2 = egui::Vec2::new(64.0, 64.0);
 
 static LUNAR_ICON_SIZE:egui::Vec2 = egui::Vec2::new(32.0, 32.0);
-
-
+#[derive(Component)]
+struct BuildingMarker;
+#[derive(Debug,Default,Component)]
+pub struct VirtualPointer{
+    pub start_click_pos:Option<Pos2>
+}
+#[derive(PhysicsLayer, Clone, Copy, Debug)]
+enum GameLayer {
+    Player, // Layer 0
+    Environment,
+    RaycastInteractible
+}
 #[derive(Debug, Default, Component)]
 pub struct PlayerMarker;
+#[derive(Debug, Default, Component)]
+pub struct DoorMarker{
+    door_enum:DoorEnum
+}
 struct DayTimer {
     stopwatch: Stopwatch,
     timefactor:u32,
@@ -75,8 +91,6 @@ impl BevyEguiImageWrapper{
     }
 }
 
-
-
 #[derive(Resource)]
 struct TopUISprites {
     solar: BevyEguiImageWrapper,
@@ -105,13 +119,18 @@ struct EmojiSprites {
 enum PlayerMovement {
     Look,
     Move,
+    Click,
     UIToggle,
     Pause
+}
+#[derive(Resource, Serialize, Deserialize)]
+struct Settings {
+    raycast_factor: f64,
 }
 #[wasm_bindgen(start)]
 pub fn start() {
     App::new()
-        .add_plugins((DefaultPlugins,EguiPlugin))
+        .add_plugins((DefaultPlugins,EguiPlugin,PhysicsPlugins::default(),))
         .add_plugins(
         ProgressPlugin::new(MyAppState::LoadingScreen)
             .continue_to(MyAppState::InGame)
@@ -119,7 +138,8 @@ pub fn start() {
         .add_systems(Update,(main_menu_gui_system.run_if(in_state(MyAppState::MainMenu)),
                              (game_update_top_ui,
                               game_update,
-                              game_update_work.run_if(in_state(MyGameState::Outdoors)).after(game_update_top_ui)).run_if(in_state(MyAppState::InGame)),
+                              game_update_work.run_if(in_state(MyGameState::Outdoors)).after(game_update_top_ui),
+                              mesh_snip_select_system).run_if(in_state(MyAppState::InGame)),
                              paused_update.run_if(in_state(MyAppState::Paused)),
                              loading_game_update.after(TrackedProgressSet)
                                  .run_if(in_state(MyAppState::LoadingScreen))))
@@ -137,24 +157,26 @@ fn setup_camera(mut commands: Commands) {
     input_map.insert(PlayerMovement::Move, VirtualDPad::wasd());
     input_map.insert(PlayerMovement::UIToggle, KeyCode::ShiftLeft);
     input_map.insert(PlayerMovement::Pause, KeyCode::Escape);
-
+    input_map.insert(PlayerMovement::Click, Mouse(MouseButton::Left));
     input_map.insert(PlayerMovement::Look,DualAxis::mouse_motion());
     commands.spawn((
         Camera3dBundle {
-            transform: Transform::from_xyz(0.0, 0.0, 0.5)
-                .looking_at(Vec3{ x: 1.0, y: 0.0, z: 0.5 }, Vec3::Z),
+            transform: Transform::from_xyz(0.0, 0.0, 0.9)
+                .looking_at(Vec3{ x: 1.0, y: 0.0, z: 0.9 }, Vec3::Z),
             ..default()
         },
         PlayerMarker,
-    ))        .insert(InputManagerBundle::with_map(input_map));
+        RigidBody::Kinematic,
+        )).insert(InputManagerBundle::with_map(input_map));
 }
 
 fn paused_update(mut q_windows: Query<&mut Window, With<PrimaryWindow>>,
                  mut next_state:ResMut<NextState<MyAppState>>,
                  mut query: Query<(&mut Transform, &ActionState<PlayerMovement>), With<PlayerMarker>>,
-                 state:Res<State<MyAppState>>,
-                 mut app_exit_events: ResMut<Events<bevy::app::AppExit>>,
-                 mut contexts: EguiContexts,) {
+                 // state:Res<State<MyAppState>>,
+                 mut contexts: EguiContexts,
+                 mut settings:ResMut<Persistent<Settings>>,
+                 mut is_settings_open:Local<bool>) {
     let (mut player_transform, mut action_state) = query.single_mut();
     if action_state.just_pressed(&PlayerMovement::Pause){
         let mut primary_window = q_windows.single_mut();
@@ -162,24 +184,36 @@ fn paused_update(mut q_windows: Query<&mut Window, With<PrimaryWindow>>,
         primary_window.cursor.visible = false;
         next_state.set(MyAppState::InGame);
     }
+
+    if*( is_settings_open){
+        egui::Window::new("Settings").show(contexts.ctx_mut(), |ui|{
+            if ui.add(egui::Slider::new(&mut settings.raycast_factor, 10.0..=100.0)).changed(){
+                settings.persist().expect("failed to save new settings");
+            }
+        });
+    }
     egui::Window::new("Paused").show(contexts.ctx_mut(), |ui| {
-        if ui.button("Exit").clicked(){
-            app_exit_events.send(bevy::app::AppExit);
+        if ui.button("Settings").clicked(){
+            *is_settings_open = !(*is_settings_open);
         }
     });
-
 }
+
 fn game_update(mut q_windows: Query<&mut Window, With<PrimaryWindow>>,
+               mut contexts:EguiContexts,
                mut query: Query<(&mut Transform, &ActionState<PlayerMovement>), With<PlayerMarker>>,
                mut next_state:ResMut<NextState<MyAppState>>,
-               state:Res<State<MyAppState>>,
+               // state:Res<State<MyAppState>>,
+               mut pointer: Query<&mut VirtualPointer, With<VirtualPointer>>,
                time:Res<Time>,) {
+    let ctx = contexts.ctx_mut();
     let (mut player_transform, mut action_state) = query.single_mut();
     let mut primary_window = q_windows.single_mut();
     if action_state.just_pressed(&PlayerMovement::Pause){
         next_state.set(MyAppState::Paused);
         primary_window.cursor.grab_mode = CursorGrabMode::None;
         primary_window.cursor.visible = true;
+        pointer.get_single_mut().unwrap().start_click_pos = None;
     }
     if action_state.just_pressed(&PlayerMovement::UIToggle){
         primary_window.cursor.grab_mode = CursorGrabMode::Confined;
@@ -187,6 +221,7 @@ fn game_update(mut q_windows: Query<&mut Window, With<PrimaryWindow>>,
     } else if action_state.just_released(&PlayerMovement::UIToggle){
         primary_window.cursor.grab_mode = CursorGrabMode::Locked;
         primary_window.cursor.visible = false;
+        pointer.get_single_mut().unwrap().start_click_pos = None;
     }
     if(primary_window.cursor.grab_mode == CursorGrabMode::Locked){
         if action_state.pressed(&PlayerMovement::Look) {
@@ -283,10 +318,20 @@ fn loading_game_update(mut commands:Commands,
     egui::Window::new("Loading").show(contexts.ctx_mut(), |ui| {
         ui.label(format!("Loading...{0}/{1}", progress.done,progress.total));
     });
+    let config_dir = dirs::config_dir()
+        .map(|native_config_dir| native_config_dir.join("dracula"))
+        .unwrap_or(Path::new("local").join("configuration"));
+    commands.insert_resource(
+        Persistent::<Settings>::builder()
+            .name("settings")
+            .format(StorageFormat::Toml)
+            .path(config_dir.join("settings.toml"))
+            .default(Settings { raycast_factor:10.0})
+            .build()
+            .expect("failed to initialize settings")
+    );
 }
-pub const DOOR_WIDTH:f32 = 1.0;
-#[derive(Component)]
-struct BuildingMarker;
+
 fn load_room(mut commands: Commands,mut meshes:ResMut<Assets<Mesh>>,mut materials:ResMut<Assets<StandardMaterial>>, query: Query<Entity, With<BuildingMarker>>){
     for entity in query.iter() {
         commands.entity(entity).remove::<PbrBundle>();
@@ -329,25 +374,25 @@ fn load_room(mut commands: Commands,mut meshes:ResMut<Assets<Mesh>>,mut material
                 material: materials.add(Color::rgb_u8(124, 144, 255)),
                 transform: Transform::from_xyz(room.center_bottom().x, room.center_bottom().y, 0.5),
                 ..default()
-            },BuildingMarker));
+            },BuildingMarker,RigidBody::Static));
             commands.spawn((PbrBundle {
                 mesh: meshes.add(Cuboid::new(room.width(), 0.1, 1.0)),
                 material: materials.add(Color::rgb_u8(124, 144, 255)),
                 transform: Transform::from_xyz(room.center_top().x, room.center_top().y, 0.5),
                 ..default()
-            },BuildingMarker));
+            },BuildingMarker,RigidBody::Static));
             commands.spawn((    PbrBundle {
                 mesh: meshes.add(Cuboid::new(0.1, room.height(), 1.0)),
                 material: materials.add(Color::rgb_u8(124, 144, 255)),
                 transform: Transform::from_xyz(room.right_center().x, room.right_center().y, 0.5),
                 ..default()
-            },BuildingMarker));
+            },BuildingMarker,RigidBody::Static));
             commands.spawn((PbrBundle {
                 mesh: meshes.add(Cuboid::new(0.1, room.height() , 1.0)),
                 material: materials.add(Color::rgb_u8(124, 144, 255)),
                 transform: Transform::from_xyz(room.left_center().x, room.left_center().y , 0.5),
                 ..default()
-            },BuildingMarker));
+            },BuildingMarker,RigidBody::Static));
             commands.spawn(PointLightBundle {
                 point_light: PointLight{
                     color: Color::rgb(1.0, 1.0, 1.0),
@@ -359,18 +404,25 @@ fn load_room(mut commands: Commands,mut meshes:ResMut<Assets<Mesh>>,mut material
                 transform: Transform::from_xyz(room.center().x, room.center().y , 1.0),
                 ..Default::default()
             });
-            for door in 0..chunk.doors.len(){
-                if let DoorEnum::Interior(..) = chunk.doors[door]{
-                    let angle_vec = Vec2::from_angle(door as f32 * PI / 2.0);
-                    let door_pos = room.center().add(bevy_egui::egui::emath::Vec2{x:(angle_vec.x * room.width()/2.0),y:(angle_vec.y * room.height()/2.0)});
-                    let mut door_transform = Transform::from_xyz(door_pos.x, door_pos.y , 0.5) ;
-                    door_transform.rotate_z(door as f32 * PI /2.0);
+            for dir in 0..chunk.doors.len(){
+                let angle = dir as f32 * PI / 2.0;
+                let angle_vec = Vec2::from_angle(angle);
+                let corner_pos = room.center().add(bevy_egui::egui::emath::Vec2{x:(angle_vec.x * room.width()/2.0),y:(angle_vec.y * room.height()/2.0)});
+                for door_num in 0..chunk.doors[dir].len(){
+                    let mut door_transform = if(angle_vec.y != 0.0){
+                        Transform::from_xyz(corner_pos.x - (room.width() / 2.0) + ((room.width()/(chunk.doors[dir].len()) as f32) * ((door_num ) as f32 + 0.5)), corner_pos.y , 0.5)
+                    }else{
+                        Transform::from_xyz(corner_pos.x , corner_pos.y - (room.height() / 2.0) + ((room.height()/(chunk.doors[dir].len()) as f32) * ((door_num ) as f32 + 0.5)), 0.5)
+                    };
+                    door_transform.rotate_local_z(angle);
                     commands.spawn((PbrBundle {
-                        mesh: meshes.add(Cuboid::new(0.1, DOOR_WIDTH , 1.1)),
+                        mesh: meshes.add(Cuboid::new(0.11  ,DOOR_WIDTH, 1.1)),
                         material: materials.add(Color::rgb_u8(124, 255, 124)),
                         transform:door_transform,
-                        ..default()
-                    },BuildingMarker));
+                        ..default() },
+                                    BuildingMarker,
+                                    RigidBody::Static,
+                                    Collider::cuboid(0.11,DOOR_WIDTH, 1.1)));
                 }
 
             }
@@ -405,6 +457,9 @@ fn loading_game_assets_enter(mut q_windows: Query<&mut Window, With<PrimaryWindo
         loading.add(&handle);
         special_emojis.insert(emoji,BevyEguiImageWrapper{id:None,handle:handle},);
     }
+    commands.spawn((
+        VirtualPointer { start_click_pos: None },
+    ));
     loading.add(&solar_handle);
     loading.add(&lunar_handle);
     // emoji_handle. .typed::<T>()
@@ -452,7 +507,8 @@ fn loading_game_assets_exit(mut sprites: ResMut<TopUISprites>,
 }
 fn main_menu_gui_system(mut app_exit_events: ResMut<Events<bevy::app::AppExit>>,
                         mut contexts: EguiContexts,
-                        mut state:ResMut<NextState<MyAppState>>) {
+                        mut state:ResMut<NextState<MyAppState>>,
+){
     egui::CentralPanel::default().show(contexts.ctx_mut(), |ui|{
         if ui.button("Start").clicked(){
             state.set(MyAppState::LoadingScreen)
@@ -461,4 +517,37 @@ fn main_menu_gui_system(mut app_exit_events: ResMut<Events<bevy::app::AppExit>>,
             app_exit_events.send(bevy::app::AppExit);
         }
     });
+}
+ fn mesh_snip_select_system(
+    mut q_windows: Query< &mut Window, With<PrimaryWindow>>,
+    mut query: Query<( &ActionState<PlayerMovement>,&mut Transform), With<PlayerMarker>>,
+    mut pointer: Query<&mut VirtualPointer, With<VirtualPointer>>,
+    mut egui_contexts: EguiContexts,
+    spatial_query: SpatialQuery) {
+    // Cast ray and print first hit
+
+    let ctx = egui_contexts.ctx_mut();
+    let (mut action_state,mut transform)= query.single_mut();
+    let primary_window = q_windows.single_mut();
+    if primary_window.cursor.grab_mode == CursorGrabMode::Confined{
+        if action_state.just_pressed(&PlayerMovement::Click){
+            pointer.get_single_mut().unwrap().start_click_pos = ctx.pointer_latest_pos();
+        } else if action_state.just_released(&PlayerMovement::Click) && pointer.get_single_mut().unwrap().start_click_pos.is_some(){
+            let rect = egui::Rect::from_two_pos(pointer.get_single_mut().unwrap().start_click_pos.unwrap(),ctx.pointer_latest_pos().unwrap());
+            pointer.get_single_mut().unwrap().start_click_pos = None;
+            println!("{0}",transform.translation);
+            if let Some(first_hit) = spatial_query.cast_shape(
+                &Collider::cuboid(rect.width(),0.1,rect.height()),          // Shape
+                transform.translation,                      // Origin
+                transform.rotation,                 // Shape rotation
+                transform.forward(),                  // Direction
+                10.0,                           // Maximum time of impact (travel distance)
+                true,                            // Should initial penetration at the origin be ignored
+                SpatialQueryFilter::default(),   // Query filter
+            ) {
+                println!("First hit: {:?}", first_hit);
+            }
+        }
+    }
+
 }

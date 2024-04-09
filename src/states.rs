@@ -1,5 +1,4 @@
 use bevy::prelude::*;
-use bevy::ecs::schedule;
 pub use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
 
