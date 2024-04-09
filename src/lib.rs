@@ -4,12 +4,12 @@ pub mod states;
 pub mod work;
 mod building;
 
-use serde::{Serialize,Deserialize};
+use serde::{Serialize, Deserialize};
 use bevy::pbr::CascadeShadowConfigBuilder;
 use rand::prelude::*;
 use strum::IntoEnumIterator;
 use std::f32::consts::PI;
-use std::ops::{Add, Deref, Div, Mul};
+use std::ops::{Add, Div, Mul};
 use std::path::Path;
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts, EguiPlugin, EguiSettings, EguiUserTextures};
@@ -42,7 +42,7 @@ static LUNAR_ICON_SIZE:egui::Vec2 = egui::Vec2::new(32.0, 32.0);
 struct BuildingMarker;
 #[derive(Debug,Default,Component)]
 pub struct VirtualPointer{
-    pub start_click_pos:Option<Pos2>
+    pub start_click_pos:Option<Vec2>
 }
 #[derive(PhysicsLayer, Clone, Copy, Debug)]
 enum GameLayer {
@@ -85,7 +85,7 @@ struct BevyEguiImageWrapper{
     handle:Handle<Image>
 }
 impl BevyEguiImageWrapper{
-    fn load(&mut self,
+    pub fn load(&mut self,
             mut egui_user_textures: &mut ResMut<EguiUserTextures>){
         self.id = Some(egui_user_textures.add_image(self.handle.clone_weak()));
     }
@@ -130,7 +130,7 @@ struct Settings {
 #[wasm_bindgen(start)]
 pub fn start() {
     App::new()
-        .add_plugins((DefaultPlugins,EguiPlugin,PhysicsPlugins::default(),))
+        .add_plugins((DefaultPlugins,EguiPlugin,PhysicsPlugins::default(), PhysicsDebugPlugin::default(), ))
         .add_plugins(
         ProgressPlugin::new(MyAppState::LoadingScreen)
             .continue_to(MyAppState::InGame)
@@ -161,12 +161,11 @@ fn setup_camera(mut commands: Commands) {
     input_map.insert(PlayerMovement::Look,DualAxis::mouse_motion());
     commands.spawn((
         Camera3dBundle {
-            transform: Transform::from_xyz(0.0, 0.0, 0.9)
-                .looking_at(Vec3{ x: 1.0, y: 0.0, z: 0.9 }, Vec3::Z),
+            transform: Transform::from_xyz(0.0, 0.9,0.0 )
+                .looking_at(Vec3{ x: 1.0, y:0.9, z: 0.0 }, Vec3::Y),
             ..default()
         },
         PlayerMarker,
-        RigidBody::Kinematic,
         )).insert(InputManagerBundle::with_map(input_map));
 }
 
@@ -226,7 +225,7 @@ fn game_update(mut q_windows: Query<&mut Window, With<PrimaryWindow>>,
     if(primary_window.cursor.grab_mode == CursorGrabMode::Locked){
         if action_state.pressed(&PlayerMovement::Look) {
             let axis_pair = action_state.axis_pair(&PlayerMovement::Look).unwrap();
-            player_transform.rotate_z(axis_pair.x() * time.delta_seconds() / ROTATE_SPEED);
+            player_transform.rotate_y(axis_pair.x() * time.delta_seconds() / ROTATE_SPEED);
         }
         if action_state.pressed(&PlayerMovement::Move) {
             let axis_pair = action_state.clamped_axis_pair(&PlayerMovement::Move).unwrap();
@@ -334,8 +333,7 @@ fn loading_game_update(mut commands:Commands,
 
 fn load_room(mut commands: Commands,mut meshes:ResMut<Assets<Mesh>>,mut materials:ResMut<Assets<StandardMaterial>>, query: Query<Entity, With<BuildingMarker>>){
     for entity in query.iter() {
-        commands.entity(entity).remove::<PbrBundle>();
-        commands.entity(entity).remove::<BuildingMarker>();
+        commands.entity(entity).despawn();
     }
     let specs = vec![
         (BuildingIterationParameters{aspect_ratio_probability_factor:0.3,
@@ -370,27 +368,27 @@ fn load_room(mut commands: Commands,mut meshes:ResMut<Assets<Mesh>>,mut material
 
         }else{
             commands.spawn((PbrBundle {
-                mesh: meshes.add(Cuboid::new(room.width(), 0.1, 1.0)),
+                mesh: meshes.add(Cuboid::new(room.width(), 1.0, 0.1)),
                 material: materials.add(Color::rgb_u8(124, 144, 255)),
-                transform: Transform::from_xyz(room.center_bottom().x, room.center_bottom().y, 0.5),
+                transform: Transform::from_xyz(room.center_bottom().x, 0.5, room.center_bottom().y),
                 ..default()
             },BuildingMarker,RigidBody::Static));
             commands.spawn((PbrBundle {
-                mesh: meshes.add(Cuboid::new(room.width(), 0.1, 1.0)),
+                mesh: meshes.add(Cuboid::new(room.width(), 1.0, 0.1)),
                 material: materials.add(Color::rgb_u8(124, 144, 255)),
-                transform: Transform::from_xyz(room.center_top().x, room.center_top().y, 0.5),
+                transform: Transform::from_xyz(room.center_top().x, 0.5, room.center_top().y),
                 ..default()
             },BuildingMarker,RigidBody::Static));
             commands.spawn((    PbrBundle {
-                mesh: meshes.add(Cuboid::new(0.1, room.height(), 1.0)),
+                mesh: meshes.add(Cuboid::new(0.1, 1.0, room.height())),
                 material: materials.add(Color::rgb_u8(124, 144, 255)),
-                transform: Transform::from_xyz(room.right_center().x, room.right_center().y, 0.5),
+                transform: Transform::from_xyz(room.right_center().x, 0.5, room.right_center().y),
                 ..default()
             },BuildingMarker,RigidBody::Static));
             commands.spawn((PbrBundle {
-                mesh: meshes.add(Cuboid::new(0.1, room.height() , 1.0)),
+                mesh: meshes.add(Cuboid::new(0.1, 1.0, room.height())),
                 material: materials.add(Color::rgb_u8(124, 144, 255)),
-                transform: Transform::from_xyz(room.left_center().x, room.left_center().y , 0.5),
+                transform: Transform::from_xyz(room.left_center().x , 0.5,room.left_center().y),
                 ..default()
             },BuildingMarker,RigidBody::Static));
             commands.spawn(PointLightBundle {
@@ -401,7 +399,7 @@ fn load_room(mut commands: Commands,mut meshes:ResMut<Assets<Mesh>>,mut material
                     radius: 0.0,
                     ..Default::default()
                 },
-                transform: Transform::from_xyz(room.center().x, room.center().y , 1.0),
+                transform: Transform::from_xyz(room.center().x, 1.0,room.center().y ),
                 ..Default::default()
             });
             for dir in 0..chunk.doors.len(){
@@ -410,19 +408,19 @@ fn load_room(mut commands: Commands,mut meshes:ResMut<Assets<Mesh>>,mut material
                 let corner_pos = room.center().add(bevy_egui::egui::emath::Vec2{x:(angle_vec.x * room.width()/2.0),y:(angle_vec.y * room.height()/2.0)});
                 for door_num in 0..chunk.doors[dir].len(){
                     let mut door_transform = if(angle_vec.y != 0.0){
-                        Transform::from_xyz(corner_pos.x - (room.width() / 2.0) + ((room.width()/(chunk.doors[dir].len()) as f32) * ((door_num ) as f32 + 0.5)), corner_pos.y , 0.5)
+                        Transform::from_xyz(corner_pos.x - (room.width() / 2.0) + ((room.width()/(chunk.doors[dir].len()) as f32) * ((door_num ) as f32 + 0.5)), 0.5,corner_pos.y )
                     }else{
-                        Transform::from_xyz(corner_pos.x , corner_pos.y - (room.height() / 2.0) + ((room.height()/(chunk.doors[dir].len()) as f32) * ((door_num ) as f32 + 0.5)), 0.5)
+                        Transform::from_xyz(corner_pos.x , 0.5,corner_pos.y - (room.height() / 2.0) + ((room.height()/(chunk.doors[dir].len()) as f32) * ((door_num ) as f32 + 0.5)))
                     };
-                    door_transform.rotate_local_z(angle);
+                    door_transform.rotate_local_y(angle);
                     commands.spawn((PbrBundle {
-                        mesh: meshes.add(Cuboid::new(0.11  ,DOOR_WIDTH, 1.1)),
+                        mesh: meshes.add(Cuboid::new(0.11  , 1.1,DOOR_WIDTH)),
                         material: materials.add(Color::rgb_u8(124, 255, 124)),
                         transform:door_transform,
                         ..default() },
                                     BuildingMarker,
                                     RigidBody::Static,
-                                    Collider::cuboid(0.11,DOOR_WIDTH, 1.1)));
+                                    Collider::cuboid(0.11, 1.1,DOOR_WIDTH)));
                 }
 
             }
@@ -518,36 +516,77 @@ fn main_menu_gui_system(mut app_exit_events: ResMut<Events<bevy::app::AppExit>>,
         }
     });
 }
+
+const RAY_RANGE:f32 = 5.0;
  fn mesh_snip_select_system(
     mut q_windows: Query< &mut Window, With<PrimaryWindow>>,
-    mut query: Query<( &ActionState<PlayerMovement>,&mut Transform), With<PlayerMarker>>,
+    mut query: Query<( &ActionState<PlayerMovement>,&GlobalTransform,&Camera), With<PlayerMarker>>,
     mut pointer: Query<&mut VirtualPointer, With<VirtualPointer>>,
     mut egui_contexts: EguiContexts,
+    mut gizmos: Gizmos,
     spatial_query: SpatialQuery) {
+     let ctx = egui_contexts.ctx_mut();
+     let (mut action_state,transform, camera)= query.single_mut();
+     let primary_window = q_windows.single_mut();
     // Cast ray and print first hit
 
-    let ctx = egui_contexts.ctx_mut();
-    let (mut action_state,mut transform)= query.single_mut();
-    let primary_window = q_windows.single_mut();
     if primary_window.cursor.grab_mode == CursorGrabMode::Confined{
         if action_state.just_pressed(&PlayerMovement::Click){
-            pointer.get_single_mut().unwrap().start_click_pos = ctx.pointer_latest_pos();
-        } else if action_state.just_released(&PlayerMovement::Click) && pointer.get_single_mut().unwrap().start_click_pos.is_some(){
-            let rect = egui::Rect::from_two_pos(pointer.get_single_mut().unwrap().start_click_pos.unwrap(),ctx.pointer_latest_pos().unwrap());
-            pointer.get_single_mut().unwrap().start_click_pos = None;
-            println!("{0}",transform.translation);
-            if let Some(first_hit) = spatial_query.cast_shape(
-                &Collider::cuboid(rect.width(),0.1,rect.height()),          // Shape
-                transform.translation,                      // Origin
-                transform.rotation,                 // Shape rotation
-                transform.forward(),                  // Direction
-                10.0,                           // Maximum time of impact (travel distance)
-                true,                            // Should initial penetration at the origin be ignored
-                SpatialQueryFilter::default(),   // Query filter
-            ) {
-                println!("First hit: {:?}", first_hit);
+            pointer.get_single_mut().unwrap().start_click_pos = primary_window.cursor_position();
+            println!("{:?}",primary_window.cursor_position().unwrap());
+        } else if let Some(start_pointer_pos) = pointer.get_single_mut().unwrap().start_click_pos{
+            let end_pointer_pos = primary_window.cursor_position().unwrap();
+            // Calculate a ray pointing from the camera into the world based on the cursor's position.
+            let Some(left_bottom) = camera.viewport_to_world(&transform, Vec2{x:start_pointer_pos.x.min(end_pointer_pos.x),y:start_pointer_pos.y.min(end_pointer_pos.y)}) else {
+                return;
+            };
+            let Some(right_bottom) = camera.viewport_to_world(&transform, Vec2{x:start_pointer_pos.x.max(end_pointer_pos.x),y:start_pointer_pos.y.min(end_pointer_pos.y)}) else {
+                return;
+            };
+            let Some(right_top) = camera.viewport_to_world(&transform, Vec2{x:start_pointer_pos.x.max(end_pointer_pos.x),y:start_pointer_pos.y.max(end_pointer_pos.y)}) else {
+                return;
+            };
+            let Some(left_top) = camera.viewport_to_world(&transform, Vec2{x:start_pointer_pos.x.min(end_pointer_pos.x),y:start_pointer_pos.y.max(end_pointer_pos.y)}) else {
+                return;
+            };
+            gizmos.linestrip(vec![left_bottom.get_point(RAY_RANGE),
+                                  right_bottom.get_point(RAY_RANGE),
+                                  right_top.get_point(RAY_RANGE),
+                                  left_top.get_point(RAY_RANGE),
+                                  left_bottom.get_point(RAY_RANGE)],Color::BLUE);
+            if action_state.just_released(&PlayerMovement::Click) {
+                println!("released");
+                let intersections = spatial_query.shape_intersections(
+                    &Collider::trimesh(vec![left_top.origin,
+                                            right_top.origin,
+                                            left_bottom.origin,
+                                            right_bottom.origin,
+                                            left_top.get_point(RAY_RANGE),
+                                            right_top.get_point(RAY_RANGE),
+                                            left_bottom.get_point(RAY_RANGE),
+                                            right_bottom.get_point(RAY_RANGE)],
+                                       vec![[0, 1, 2], // Side 0
+                                            [2, 1, 3],
+                                            [4, 0, 6], // Side 1
+                                            [6, 0, 2],
+                                            [7, 5, 6], // Side 2
+                                            [6, 5, 4],
+                                            [3, 1, 7], // Side 3
+                                            [7, 1, 5],
+                                            [4, 5, 0], // Side 4
+                                            [0, 5, 1],
+                                            [3, 7, 2], // Side 5
+                                            [2, 7, 6]]),          // Shape
+                    Vec3::ZERO,
+                    Quat::default(),
+                    SpatialQueryFilter::default(),
+                );
+                for entity in intersections.iter() {
+                    println!("Entity: {:?}", entity);
+                }
+
+                pointer.get_single_mut().unwrap().start_click_pos = None;
             }
         }
     }
-
 }
