@@ -12,6 +12,12 @@ pub enum MyAppState {
 
 }
 #[derive(States,Debug, Clone, PartialEq, Eq, Hash)]
+pub enum AppCursorState {
+    Locked,
+    Virtual,
+    Free,
+}
+#[derive(States,Debug, Clone, PartialEq, Eq, Hash)]
 pub enum MyGameState {
     Outdoors,
     Indoors,
