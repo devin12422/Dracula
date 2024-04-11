@@ -9,7 +9,7 @@ use bevy_egui::egui::{emath, Pos2, Rangef};
 use rand::{Rng, thread_rng};
 
 pub const HALL_WIDTH:f32 = 2.0;
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default,Copy)]
 pub enum DoorEnum{
     #[default]
     Exterior,

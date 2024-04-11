@@ -36,6 +36,7 @@ once_cell = "1.19.0"
 bevy-persistent = { version = "0.5.0", features = ["all"] }
 dirs = "5.0.1"
 bevy_xpbd_3d = "0.4.2"
+bevy-trait-query = "0.5.1"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 bevy = { version = "0.13.2"}
