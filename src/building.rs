@@ -68,27 +68,7 @@ impl BuildingChunk{
             }
         }
     }
-    pub fn get_lowest_rects(&self)->Vec<egui::Rect>{
-        match &self.divided_chunks{
-            None=>{
-                vec![self.rect]
-            },
-            Some(chunk_data)=>{
-                match chunk_data{
-                    BuildingChunkData::Parent( children, _)=>{
-                        let mut vec = Vec::new();
-                        for chunk in children{
-                            vec = [vec,chunk.get_lowest_rects()].concat();
-                        }
-                        vec
-                    },
-                   BuildingChunkData::Tagged => {
-                       vec![self.rect]
-                   }
-                }
-            }
-        }
-    }
+
     pub fn divide(&mut self,parameters:&BuildingIterationParameters){
         let mut rng = thread_rng();
         match self.divided_chunks{
